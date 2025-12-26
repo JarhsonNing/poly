@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vue 插件架构演示 - 文件管理器</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Vue 3 Global Build (为了让 window.Vue 存在，模拟 UMD 依赖环境) -->
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <!-- Phosphor Icons -->
+    <script src="https://unpkg.com/@phosphor-icons/web"></script>
+
+    <style>
+        body { background-color: #f3f4f6; font-family: 'Segoe UI', sans-serif; }
+        .file-item:hover { background-color: #e5e7eb; }
+        .file-item.active { background-color: #bfdbfe; border-color: #3b82f6; }
+        /* 模拟 Windows 窗口样式 */
+        .window-frame { box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1); }
+    </style>
+</head>
+<body>
+
+<div id="app" class="h-screen flex items-center justify-center p-4">
+
+    <!-- 主窗口 -->
+    <div class="window-frame w-full max-w-4xl h-[600px] bg-white rounded-lg flex flex-col overflow-hidden border border-gray-200">
+
+        <!-- 顶部栏 -->
+        <div class="bg-gray-50 border-b border-gray-200 p-3 flex justify-between items-center">
+            <div class="flex items-center gap-2">
+                <div class="w-3 h-3 rounded-full bg-red-400"></div>
+                <div class="w-3 h-3 rounded-full bg-yellow-400"></div>
+                <div class="w-3 h-3 rounded-full bg-green-400"></div>
+                <span class="ml-2 text-sm font-semibold text-gray-600">我的云盘 (插件架构演示)</span>
+            </div>
+            <div class="text-xs text-gray-400">
+                已加载插件数: {{ loadedPluginsCount }}
+            </div>
+        </div>
+
+        <!-- 内容区域 -->
+        <div class="flex-1 flex overflow-hidden">
+
+            <!-- 左侧：文件列表 -->
+            <div class="w-1/3 border-r border-gray-200 bg-white flex flex-col">
+                <div class="p-2 border-b border-gray-100 text-xs font-bold text-gray-400 uppercase">文件列表</div>
+                <div class="flex-1 overflow-y-auto p-2 space-y-1">
+                    <div
+                        v-for="file in files"
+                        :key="file.id"
+                        @click="selectedFile = file"
+                        @dblclick="handleFileDoubleClick(file)"
+                        :class="['file-item p-2 rounded cursor-pointer border border-transparent flex items-center gap-2 transition-colors', selectedFile?.id === file.id ? 'active' : '']"
+                    >
+                        <i :class="getFileIcon(file.type)" class="text-xl text-gray-500"></i>
+                        <div class="flex flex-col">
+                            <span class="text-sm font-medium text-gray-700">{{ file.name }}</span>
+                            <span class="text-xs text-gray-400">{{ file.size }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 模拟加载插件的操作区 -->
+                <div class="p-3 bg-gray-50 border-t border-gray-200">
+                    <button
+                        @click="simulateLoadPlugin"
+                        :disabled="pluginLoaded"
+                        class="w-full py-2 px-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-gray-300 text-white text-xs rounded transition shadow-sm flex items-center justify-center gap-2"
+                    >
+                        <i class="ph ph-plug"></i>
+                        {{ pluginLoaded ? '图片预览插件已安装' : '模拟加载 "图片预览插件.js"' }}
+                    </button>
+                    <p class="text-[10px] text-gray-400 mt-2 text-center">
+                        点击上方按钮模拟 `script` 标签注入
+                    </p>
+                </div>
+            </div>
+
+            <!-- 右侧：预览区域 -->
+            <div class="w-2/3 bg-gray-50 flex items-center justify-center relative p-4">
+
+                <!-- 场景1：未选择文件 -->
+                <div v-if="!currentPreviewFile" class="text-center text-gray-400">
+                    <i class="ph ph-files text-4xl mb-2"></i>
+                    <p>双击左侧文件进行预览</p>
+                </div>
+
+                <!-- 场景2：正在预览 (动态组件) -->
+                <div v-else class="w-full h-full flex flex-col">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-bold text-gray-700">预览: {{ currentPreviewFile.name }}</h2>
+                        <button @click="closePreview" class="text-gray-400 hover:text-gray-600">
+                            <i class="ph ph-x text-xl"></i>
+                        </button>
+                    </div>
+
+                    <div class="flex-1 bg-white rounded shadow-sm border border-gray-200 overflow-hidden relative flex items-center justify-center">
+
+                        <!-- 核心：动态组件挂载点 -->
+                        <component
+                            v-if="currentPluginComponent"
+                            :is="currentPluginComponent"
+                            :file-name="currentPreviewFile.name"
+                            :file-url="currentPreviewFile.url"
+                        ></component>
+
+                        <!-- 错误状态：没有匹配的插件 -->
+                        <div v-else class="text-center p-6">
+                            <i class="ph ph-warning-circle text-3xl text-orange-400 mb-2"></i>
+                            <p class="text-gray-600 font-medium">无法预览此文件</p>
+                            <p class="text-xs text-gray-400 mt-1">系统中没有注册针对 .{{ getExt(currentPreviewFile.name) }} 的插件</p>
+                        </div>
+
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    const { createApp, ref, shallowRef, computed, onMounted } = Vue;
+
+    // --- 1. 插件管理器 (Core Architecture) ---
+    class PluginManager {
+        constructor() {
+            this.registry = new Map(); // extension -> component
+            this.plugins = []; // metadata list
+        }
+
+        // 暴露给外部插件调用的注册方法
+        register(pluginData) {
+            console.log(`[PluginManager] 收到注册请求: ${pluginData.name} v${pluginData.version}`);
+
+            // 存储元数据
+            this.plugins.push(pluginData);
+
+            // 建立 扩展名 -> 组件 的映射
+            pluginData.fileTypes.forEach(type => {
+                // 使用 shallowRef 避免 Vue 深度监听组件对象带来的性能开销
+                this.registry.set(type.toLowerCase(), pluginData.component);
+                console.log(`[PluginManager] 已关联 .${type} -> ${pluginData.name}`);
+            });
+
+            // 触发事件通知 UI 更新 (简单的事件总线)
+            window.dispatchEvent(new CustomEvent('plugin-registered'));
+        }
+
+        getComponent(filename) {
+            const ext = filename.split('.').pop().toLowerCase();
+            return this.registry.get(ext);
+        }
+    }
+
+    const pluginManager = new PluginManager();
+
+    // --- 2. 暴露全局 API (The Protocol) ---
+    // 插件代码执行时会调用 window.FileApp.registerPlugin(...)
+    window.FileApp = {
+        registerPlugin: (data) => pluginManager.register(data)
+    };
+
+    // --- 3. Vue 主应用逻辑 ---
+    createApp({
+        setup() {
+            const files = ref([
+                { id: 1, name: '说明文档.txt', size: '2KB', type: 'txt', url: '#' },
+                { id: 2, name: '度假照片.png', size: '2.5MB', type: 'image', url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=1000&auto=format&fit=crop' },
+                { id: 3, name: '工作汇报.pdf', size: '1.2MB', type: 'pdf', url: '#' },
+                { id: 4, name: '设计图稿.jpg', size: '3.1MB', type: 'image', url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=1000&auto=format&fit=crop' },
+            ]);
+
+            const selectedFile = ref(null);
+            const currentPreviewFile = ref(null);
+            const loadedPluginsCount = ref(0);
+            const pluginLoaded = ref(false);
+
+            // 当前激活的插件组件
+            const currentPluginComponent = shallowRef(null);
+
+            // 监听插件注册事件以更新计数
+            onMounted(() => {
+                window.addEventListener('plugin-registered', () => {
+                    loadedPluginsCount.value = pluginManager.plugins.length;
+                    // 如果当前正在预览且之前因为缺插件失败了，尝试重新加载组件
+                    if (currentPreviewFile.value) {
+                        const comp = pluginManager.getComponent(currentPreviewFile.value.name);
+                        if (comp) currentPluginComponent.value = comp;
+                    }
+                });
+            });
+
+            const handleFileDoubleClick = (file) => {
+                currentPreviewFile.value = file;
+                // 查找是否有对应插件
+                const comp = pluginManager.getComponent(file.name);
+                currentPluginComponent.value = comp || null;
+            };
+
+            const closePreview = () => {
+                currentPreviewFile.value = null;
+                currentPluginComponent.value = null;
+            };
+
+            const getFileIcon = (type) => {
+                const map = {
+                    'txt': 'ph-file-text',
+                    'image': 'ph-image',
+                    'pdf': 'ph-file-pdf',
+                    'video': 'ph-film-strip'
+                };
+                return `ph ${map[type] || 'ph-file'}`;
+            };
+
+            const getExt = (name) => name.split('.').pop();
+
+            // --- 模拟：从服务器加载插件 JS ---
+            // 在真实场景中，这里会是 loadScript('http://cdn.com/plugins/image-preview.js')
+            const simulateLoadPlugin = () => {
+                if (pluginLoaded.value) return;
+
+                // 这是一个被“编译”过的 UMD 插件代码字符串
+                // 注意：它假设 window.Vue 存在
+                const mockPluginScriptContent = `
+                (function(global) {
+                    // 定义插件组件 (ImagePreview.vue)
+                    const ImagePreviewComponent = {
+                        props: ['fileUrl', 'fileName'],
+                        template: \`
+                            <div class="w-full h-full flex flex-col items-center justify-center bg-gray-900 text-white p-4">
+                                <div class="flex-1 w-full flex items-center justify-center overflow-hidden">
+                                    <img :src="fileUrl" class="max-w-full max-h-full object-contain shadow-lg" alt="preview" />
+                                </div>
+                                <div class="h-10 flex items-center gap-2 mt-2">
+                                    <span class="text-xs bg-green-600 px-2 py-1 rounded">Plugin Active</span>
+                                    <span class="text-sm">图片查看器 v1.0</span>
+                                </div>
+                            </div>
+                        \`
+                    };
+
+                    // 调用宿主注册表
+                    if (global.FileApp) {
+                        global.FileApp.registerPlugin({
+                            name: 'SimpleImageViewer',
+                            version: '1.0.0',
+                            fileTypes: ['png', 'jpg', 'jpeg', 'gif'], // 支持的文件后缀
+                            component: ImagePreviewComponent
+                        });
+                    }
+                })(window);
+                `;
+
+                // 创建 Blob 并注入 Script 标签
+                const blob = new Blob([mockPluginScriptContent], { type: 'application/javascript' });
+                const url = URL.createObjectURL(blob);
+
+                const script = document.createElement('script');
+                script.src = url;
+                script.onload = () => {
+                    pluginLoaded.value = true;
+                    alert('插件 "SimpleImageViewer" 加载成功！\n现在请双击图片文件。');
+                };
+                document.body.appendChild(script);
+            };
+
+            return {
+                files,
+                selectedFile,
+                currentPreviewFile,
+                currentPluginComponent,
+                loadedPluginsCount,
+                pluginLoaded,
+                handleFileDoubleClick,
+                closePreview,
+                getFileIcon,
+                getExt,
+                simulateLoadPlugin
+            };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
