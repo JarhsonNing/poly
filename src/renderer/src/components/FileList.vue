@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ref } from 'vue'
 import SvgIcon from './SvgIcon.vue'
 
 export interface FileItem {
@@ -10,7 +9,7 @@ export interface FileItem {
   url: string
 }
 
-const props = defineProps<{
+defineProps<{
   files: FileItem[]
   selectedFile: FileItem | null
 }>()
@@ -20,15 +19,15 @@ const emit = defineEmits<{
   (e: 'dblclick', file: FileItem): void
 }>()
 
-const handleSelect = (file: FileItem) => {
+const handleSelect = (file: FileItem): void => {
   emit('select', file)
 }
 
-const handleDoubleClick = (file: FileItem) => {
+const handleDoubleClick = (file: FileItem): void => {
   emit('dblclick', file)
 }
 
-const getIconName = (type: string) => {
+const getIconName = (type: string): string => {
   // Mapping file types to our svg icons
   const map: Record<string, string> = {
     txt: 'file',

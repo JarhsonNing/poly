@@ -1,8 +1,13 @@
-import { contextBridge } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 
 // Custom APIs for renderer
-const api = {}
+const api = {
+  installPlugin: (zipPath: string) => ipcRenderer.invoke('install-plugin', zipPath),
+  getPathForFile: (file: File) => webUtils.getPathForFile(file),
+  getPluginList: () => ipcRenderer.invoke('get-plugin-list'),
+  openEaglePlugin: (pluginId: string) => ipcRenderer.invoke('open-eagle-plugin', pluginId)
+}
 
 // Use `contextBridge` APIs to expose Electron APIs to
 // renderer only if context isolation is enabled, otherwise

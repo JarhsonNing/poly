@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { ref, watch, computed, onBeforeUnmount, nextTick } from 'vue'
-import { pluginManager } from '../utils/PluginManager'
+import { PluginManager } from '../../../../plugins'
 import SvgIcon from './SvgIcon.vue'
-import type { FileItem } from '../utils/PluginManager' // Use shared type
+import type { FileItem } from './FileList.vue'
 
 const props = defineProps<{
   file: FileItem | null
+  pluginManager: PluginManager
 }>()
 
 const emit = defineEmits<{
@@ -39,7 +40,7 @@ watch(
     await nextTick()
     if (!container.value) return
 
-    const previewer = pluginManager.getMatchingPreviewer(newFile.name)
+    const previewer = props.pluginManager.getMatchingPreviewer(newFile.name)
     if (previewer) {
       console.log(`[PreviewPanel] Mounting ${previewer.name} for ${newFile.name}`)
       try {
@@ -63,7 +64,7 @@ const fileExtension = computed(() => {
 
 const hasMatchingPlugin = computed(() => {
   if (!props.file) return false
-  return !!pluginManager.getMatchingPreviewer(props.file.name)
+  return !!props.pluginManager.getMatchingPreviewer(props.file.name)
 })
 </script>
 

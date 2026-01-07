@@ -2,7 +2,7 @@
 import { ref } from 'vue'
 import FileList, { type FileItem } from './FileList.vue'
 import PreviewPanel from './PreviewPanel.vue'
-import { pluginManager } from '../utils/PluginManager'
+
 
 // Mock Data
 const files = ref<FileItem[]>([
@@ -33,19 +33,32 @@ const handlePluginLoad = async (event: Event) => {
   const input = event.target as HTMLInputElement
   if (input.files && input.files.length > 0) {
     const file = input.files[0]
+    // Electron File object exposes 'path' property
+    const filePath = (file as any).path
+
+    if (!filePath) {
+      alert('Unable to get file path. This feature requires Electron.')
+      return
+    }
+
     try {
-      // Create a Blob URL for the plugin file
-      // NOTE: This assumes the file is a valid ESM module that exports default
-      const blobUrl = URL.createObjectURL(new Blob([await file.arrayBuffer()], { type: 'text/javascript' }))
+      const result = await window.api.installPlugin(filePath);
+      if (!result.success) {
+        alert(`Failed to load plugin: ${result.error}`)
+        return
+      }
+      const module = await import(result.entryUrl);
+      console.log(module)
+      const plugin = new module.default();
+      plugins.forEach(p => {
+        pluginManager.register(p)
+        p.activate()
+      })
 
-      // Dynamic import from the blob URL
-      const module = await import(/* @vite-ignore */ blobUrl)
+      alert(`Loaded ${plugins.length} plugin(s) successfully!`)
 
-      await pluginManager.loadPluginModule(module)
-      alert(`Plugin loaded successfully!`)
-
-      // Update count (pluginManager.plugins is a shallowRef, so we can access it)
-      currentPluginCount.value = pluginManager.getPlugins().value.length
+      // Update count
+      currentPluginCount.value = pluginManager.getPlugins().length
 
       // Reset input
       input.value = ''
@@ -68,10 +81,10 @@ const handlePluginLoad = async (event: Event) => {
         <span class="app-title">My Cloud Drive (Plugin Architecture)</span>
       </div>
       <div class="plugin-status">
-        Loaded Plugins: {{ pluginManager.getPlugins().value.length }}
+        Loaded Plugins: {{ currentPluginCount }}
         <label class="load-plugin-btn">
-          Load Plugin (JS)
-          <input type="file" accept=".js" class="hidden-input" @change="handlePluginLoad" />
+          Load Plugin (ZIP)
+          <input type="file" accept=".zip" class="hidden-input" @change="handlePluginLoad" />
         </label>
       </div>
     </div>
@@ -89,6 +102,7 @@ const handlePluginLoad = async (event: Event) => {
       <div class="content-area">
         <PreviewPanel
           :file="currentPreviewFile"
+          :plugin-manager="pluginManager"
           @close="closePreview"
         />
       </div>
